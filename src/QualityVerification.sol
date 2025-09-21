@@ -43,4 +43,9 @@ contract QualityVerification {
 
         emit AutomatedScoreUpdated(_checkId, _score);
     }
+
+    // --- NEW GETTER FUNCTION ADDED HERE ---
+    function getCheck(uint256 _checkId) external view returns (QualityCheck memory) {
+        return qualityChecks[_checkId];
+    }
 }
