@@ -78,4 +78,17 @@ contract DisputeJury {
         dispute.ruling = dispute.votesFor > dispute.votesAgainst;
         emit DisputeResolved(_disputeId, dispute.ruling);
     }
+
+    // Because the Dispute struct contains a mapping, we can't return the whole thing.
+    // Instead, we create specific getters for the data we need to check.
+    
+    function getDisputeVotes(uint256 _disputeId) external view returns (uint256 votesFor, uint256 votesAgainst) {
+        Dispute storage dispute = disputes[_disputeId];
+        return (dispute.votesFor, dispute.votesAgainst);
+    }
+
+    function getDisputeStatus(uint256 _disputeId) external view returns (bool resolved, bool ruling) {
+        Dispute storage dispute = disputes[_disputeId];
+        return (dispute.resolved, dispute.ruling);
+    }
 }
