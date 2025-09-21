@@ -21,7 +21,6 @@ contract InsurancePoolTest is Test {
         uint256 coverage = 50; // Silver tier
         
         // Calculate the expected premium based on the contract's logic:
-        // (projectValue * coverage * 0.2%) / 100 = (2e18 * 50 * 2) / 10000 = 0.02 ETH
         uint256 expectedPremium = (projectValue * coverage * 2) / 10000;
 
         // Give the client enough ETH to pay the premium
@@ -30,19 +29,16 @@ contract InsurancePoolTest is Test {
         // Simulate the transaction coming from the client, with the premium attached
         vm.prank(client);
         uint256 returnedPremium = insurancePool.createPolicy{value: expectedPremium}(projectId, coverage, projectValue);
-
-        // --- VERIFY THE RESULTS ---
         
-        // 1. Check if the returned premium is correct
+        // --- VERIFY THE RESULTS ---
         assertEq(returnedPremium, expectedPremium, "Returned premium is incorrect");
 
-        // 2. Check if the policy was saved with the correct details
-        InsurancePool.InsurancePolicy memory policy = insurancePool.policies(projectId);
+        // THIS IS THE CORRECTED LINE:
+        InsurancePool.InsurancePolicy memory policy = insurancePool.getPolicy(projectId);
         assertEq(policy.coverage, coverage, "Policy coverage is incorrect");
         assertEq(policy.premium, expectedPremium, "Policy premium is incorrect");
         assertTrue(policy.isActive, "Policy should be active");
 
-        // 3. Check if the total pool balance increased correctly
         assertEq(insurancePool.totalPool(), expectedPremium, "Total pool balance is incorrect");
     }
 }

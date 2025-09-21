@@ -60,4 +60,9 @@ contract InsurancePool {
         emit ClaimSubmitted(claimId, _projectId);
         return claimId;
     }
+
+    // --- NEW GETTER FUNCTION ADDED HERE ---
+    function getPolicy(uint256 _projectId) external view returns (InsurancePolicy memory) {
+        return policies[_projectId];
+    }
 }
