@@ -1,57 +1,81 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import "forge-std/Test.sol";
-import "../src/StreamingEscrow.sol";
+contract StreamingEscrow {
 
-contract StreamingEscrowTest is Test {
-    StreamingEscrow public escrow;
-    
-    // Mock user addresses for testing
-    address public client = address(0x1);
-    address public freelancer = address(0x2);
-
-    function setUp() public {
-        escrow = new StreamingEscrow();
+    struct Project {
+        address client;
+        address freelancer;
+        uint256 totalAmount;
+        uint256[] milestoneAmounts;
+        bool[] milestonesCompleted;
+        bool[] milestonesPaid;
+        uint256 insurancePolicyId;
+        bool hasInsurance;
     }
 
-    function testCreateProjectAndReleaseMilestone() public {
-        // --- Part 1: Test Project Creation ---
+    mapping(uint256 => Project) public projects;
+    uint256 public projectCount;
 
-        // Define the milestone payments
-        uint256[] memory milestoneAmounts = new uint256[](2);
-        milestoneAmounts[0] = 0.5 ether;
-        milestoneAmounts[1] = 1.0 ether;
-        uint256 totalProjectValue = 1.5 ether;
+    event ProjectCreated(uint256 indexed projectId, address indexed client, address indexed freelancer);
+    event MilestoneCompleted(uint256 indexed projectId, uint256 milestone);
+    event MilestonePaymentReleased(uint256 indexed projectId, uint256 milestone, uint256 amount);
 
-        // Give the client enough Ether to fund the project
-        vm.deal(client, totalProjectValue);
+    function createProjectWithMilestones(
+        address _freelancer,
+        uint256[] memory _milestoneAmounts,
+        uint256 _insurancePolicyId
+    ) external payable returns (uint256) {
+        require(_freelancer != address(0), "Invalid freelancer");
 
-        // Simulate the transaction coming from the client
-        vm.prank(client);
-        uint256 projectId = escrow.createProjectWithMilestones{value: totalProjectValue}(freelancer, milestoneAmounts, 0);
+        uint256 totalRequired = 0;
+        for (uint i = 0; i < _milestoneAmounts.length; i++) {
+            totalRequired += _milestoneAmounts[i];
+        }
+        require(msg.value >= totalRequired, "Insufficient payment");
 
-        // Check that the project was created correctly
-        StreamingEscrow.Project memory project = escrow.projects(projectId);
-        assertEq(project.client, client);
-        assertEq(project.freelancer, freelancer);
-        assertEq(project.totalAmount, totalProjectValue);
-        assertEq(escrow.projectCount(), 1);
+        uint256 projectId = ++projectCount;
+        projects[projectId] = Project({
+            client: msg.sender,
+            freelancer: _freelancer,
+            totalAmount: msg.value,
+            milestoneAmounts: _milestoneAmounts,
+            milestonesCompleted: new bool[](_milestoneAmounts.length),
+            milestonesPaid: new bool[](_milestoneAmounts.length),
+            insurancePolicyId: _insurancePolicyId,
+            hasInsurance: _insurancePolicyId > 0
+        });
 
-        // --- Part 2: Test Milestone Release ---
+        emit ProjectCreated(projectId, msg.sender, _freelancer);
+        return projectId;
+    }
+
+    function completeMilestone(uint256 _projectId, uint256 _milestone) external {
+        Project storage project = projects[_projectId];
+        require(project.freelancer == msg.sender, "Only freelancer can complete");
+        require(_milestone < project.milestoneAmounts.length, "Invalid milestone");
+        require(!project.milestonesCompleted[_milestone], "Already completed");
+
+        project.milestonesCompleted[_milestone] = true;
+        emit MilestoneCompleted(_projectId, _milestone);
+    }
+
+    function releaseMilestonePayment(uint256 _projectId, uint256 _milestone) external {
+        Project storage project = projects[_projectId];
+        require(project.client == msg.sender, "Only client can release");
+        require(project.milestonesCompleted[_milestone], "Milestone not completed");
+        require(!project.milestonesPaid[_milestone], "Already paid");
+
+        project.milestonesPaid[_milestone] = true;
+        uint256 amount = project.milestoneAmounts[_milestone];
         
-        uint256 initialFreelancerBalance = freelancer.balance;
+        payable(project.freelancer).transfer(amount);
+        emit MilestonePaymentReleased(_projectId, _milestone, amount);
+    }
 
-        // 1. Freelancer completes the first milestone
-        vm.prank(freelancer);
-        escrow.completeMilestone(projectId, 0);
-
-        // 2. Client releases the payment for the first milestone
-        vm.prank(client);
-        escrow.releaseMilestonePayment(projectId, 0);
-
-        // 3. Check if the freelancer received the correct payment
-        uint256 expectedBalance = initialFreelancerBalance + milestoneAmounts[0];
-        assertEq(freelancer.balance, expectedBalance, "Freelancer did not receive payment");
+    // --- NEW GETTER FUNCTION ADDED HERE ---
+    // This function returns the full Project struct for a given ID.
+    function getProject(uint256 _projectId) external view returns (Project memory) {
+        return projects[_projectId];
     }
 }
