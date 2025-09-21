@@ -1,74 +1,76 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+// Import the interface of the new contracts
+import "./GasSponsorship.sol";
+import "./ReputationNFT.sol";
 
-contract EnhancedUserRegistry is ERC721 {
+contract EnhancedUserRegistry {
+    // --- STATE VARIABLES ---
+    GasSponsorship public gasSponsorshipContract;
+    ReputationNFT public reputationNFTContract;
+
+    uint256 public constant DEPOSIT_REFUNDABLE = 0.02 ether;
+    uint256 public constant DEPOSIT_GAS_POOL = 0.015 ether;
+    uint256 public constant TOTAL_DEPOSIT = DEPOSIT_REFUNDABLE + DEPOSIT_GAS_POOL;
 
     struct User {
         address wallet;
         string name;
         uint256 reputation;
         bool isActive;
-        uint256 depositAmount;
-        uint256[] completedTrials;
+        uint256 depositAmount; // The refundable part of the deposit
+        uint256[] completedTrials; // Array of token IDs from ReputationNFT
         uint256 insuranceStake;
-    }
-
-    struct TrialBadge {
-        string skillArea;
-        uint256 score;
-        address issuer;
-        uint256 timestamp;
-        bool verified;
     }
 
     mapping(address => User) public users;
     mapping(address => bool) public isRegistered;
-    mapping(uint256 => TrialBadge) public trialBadges;
-    
-    uint256 public nextTrialId = 1;
 
-    event UserRegistered(address indexed user, bool isFreelancer);
-    event TrialCompleted(address indexed user, uint256 trialId, uint256 score);
+    event UserRegistered(address indexed user);
+    event TrialCompleted(address indexed user, uint256 tokenId, uint256 score);
 
-    constructor() ERC721("Freelance Credentials", "FLCRED") {}
+    // The addresses of the new contracts are passed in when deploying
+    constructor(address _gasSponsorshipAddress, address _reputationNFTAddress) {
+        gasSponsorshipContract = GasSponsorship(_gasSponsorshipAddress);
+        reputationNFTContract = ReputationNFT(_reputationNFTAddress);
+    }
 
-    function registerUser(string memory _name, bool _isFreelancer) external payable {
-        require(msg.value >= 0.035 ether, "Insufficient deposit");
+    function registerUser(string memory _name) external payable {
+        // Check if the user sent the exact total deposit amount
+        require(msg.value == TOTAL_DEPOSIT, "Incorrect deposit amount");
         require(!isRegistered[msg.sender], "Already registered");
 
+        // Send the gas pool portion of the deposit to the GasSponsorship contract
+        (bool success, ) = address(gasSponsorshipContract).call{value: DEPOSIT_GAS_POOL}("");
+        require(success, "Failed to send deposit to gas pool");
+
+        // Store the user's data
         users[msg.sender] = User({
             wallet: msg.sender,
             name: _name,
             reputation: 100,
             isActive: true,
-            depositAmount: msg.value,
+            depositAmount: DEPOSIT_REFUNDABLE, // Only store the refundable part
             completedTrials: new uint256[](0),
             insuranceStake: 0
         });
 
         isRegistered[msg.sender] = true;
-        emit UserRegistered(msg.sender, _isFreelancer);
+        emit UserRegistered(msg.sender);
     }
 
     function completeTrialBadge(address _freelancer, string memory _skillArea, uint256 _score) external returns (uint256) {
         require(isRegistered[_freelancer], "Freelancer not registered");
-        uint256 trialId = nextTrialId++;
         
-        trialBadges[trialId] = TrialBadge({
-            skillArea: _skillArea,
-            score: _score,
-            issuer: msg.sender,
-            timestamp: block.timestamp,
-            verified: true
-        });
+        // Call the ReputationNFT contract to mint the credential.
+        // This will only work if this UserRegistry contract is the owner of the ReputationNFT contract.
+        uint256 tokenId = reputationNFTContract.mintCredential(_freelancer, _skillArea, _score, msg.sender);
 
-        users[_freelancer].completedTrials.push(trialId);
+        users[_freelancer].completedTrials.push(tokenId);
         users[_freelancer].reputation += _score / 10;
         
-        _mint(_freelancer, trialId);
-        emit TrialCompleted(_freelancer, trialId, _score);
-        return trialId;
+        emit TrialCompleted(_freelancer, tokenId, _score);
+        return tokenId;
     }
 }
